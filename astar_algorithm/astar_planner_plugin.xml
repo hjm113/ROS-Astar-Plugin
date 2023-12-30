@@ -1,0 +1,5 @@
+<library path="lib/libastar_algorithm">
+ <class name="astar_planner/AstarPlanner" type="astar_planner::AstarPlanner" base_class_type="nav_core::BaseGlobalPlanner">
+   <description>A* global planner plugin for move_base</description>
+ </class>
+</library>
