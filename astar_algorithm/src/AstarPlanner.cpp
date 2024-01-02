@@ -40,10 +40,6 @@ namespace astar_planner {
                     if(cost == 0) {
                         OccupancyGridMap[i*cellsX+j] = 1;
                     }
-                    else {
-                        OccupancyGridMap[i*cellsX+j] = 0;
-                    }
-                    
                 }
             }
 
@@ -83,9 +79,11 @@ namespace astar_planner {
         
         //check the start and goal located at the correct poistion
         if(OccupancyGridMap[start_idx] == 0 || !areaLimit(start_x,start_y)) {
-            ROS_WARN("%d  %d       %d",start_x,start_y,OccupancyGridMap[start_idx]);
-            ROS_WARN("Wrong start position");
-            return false;
+            ROS_INFO("%d  %d       %d",start_x,start_y,OccupancyGridMap[start_idx]);
+            ROS_INFO("Wrong start position");
+            plan.push_back(start);
+            plan.push_back(goal);
+            return true;
         }
         if(OccupancyGridMap[goal_idx] == 0 || !areaLimit(goal_x,goal_y)) {
             ROS_WARN("Wrong goal position");
@@ -174,6 +172,7 @@ namespace astar_planner {
             coord.pose.orientation = tf::createQuaternionMsgFromYaw(angle);
             plan.push_back(coord);
         }
+        plan.push_back(goal);
         return true;
     }
 
