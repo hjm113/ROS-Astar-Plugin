@@ -22,7 +22,7 @@ using std::abs;
 
 struct Node{
     double f_cost, g_cost;
-    int idx;
+    int idx, cell_size;
 };
 
 namespace astar_planner {

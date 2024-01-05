@@ -7,7 +7,15 @@ PLUGINLIB_EXPORT_CLASS(astar_planner::AstarPlanner, nav_core::BaseGlobalPlanner)
 // compare function for minimum heap
 struct cmp {
     bool operator()(Node &fst_node, Node &snd_node) {
-        return fst_node.f_cost > snd_node.f_cost;
+        if(fst_node.cell_size > snd_node.cell_size) {
+            return true;
+        }
+        else if(fst_node.cell_size == snd_node.cell_size) {
+            return fst_node.f_cost > snd_node.f_cost;
+        }
+        else {
+            return false;
+        }
     }
 };
 
@@ -38,8 +46,9 @@ namespace astar_planner {
                 for(unsigned int j = 0; j < cellsX; j++) {
                     unsigned int cost = static_cast<int>(m_costmap->getCost(j,i));
                     if(cost == 0) {
-                        OccupancyGridMap[i*cellsX+j] = 1;
+                        
                     }
+                    OccupancyGridMap[i*cellsX+j] = cost;
                 }
             }
 
@@ -78,19 +87,16 @@ namespace astar_planner {
         int goal_idx = m_costmap->getIndex(goal_x,goal_y);
         
         //check the start and goal located at the correct poistion
-        if(OccupancyGridMap[start_idx] == 0 || !areaLimit(start_x,start_y)) {
+        //what if it gets to the free space area
+        if(OccupancyGridMap[start_idx] > 0 || !areaLimit(start_x,start_y)) {
             ROS_INFO("%d  %d       %d",start_x,start_y,OccupancyGridMap[start_idx]);
             ROS_INFO("Wrong start position");
-            plan.push_back(start);
-            plan.push_back(goal);
-            return true;
         }
-        if(OccupancyGridMap[goal_idx] == 0 || !areaLimit(goal_x,goal_y)) {
-            ROS_WARN("Wrong goal position");
-            return false;
+        if(OccupancyGridMap[goal_idx] > 0 || !areaLimit(goal_x,goal_y)) {
+            ROS_INFO("Wrong goal position");
         }
         //pq to get the lowest value of the fuctions
-        //make the open and cloosed checking vector
+        //make the open and closed checking vector
         //make the parent node
         priority_queue<Node,vector<Node>,cmp> pq_wait;
         vector<int> open(area,1000000);
@@ -102,6 +108,7 @@ namespace astar_planner {
         start_node.f_cost = 0 + getHeuristic(start_idx,goal_idx);
         start_node.g_cost = 0;
         start_node.idx = start_idx;
+        start_node.cell_size = OccupancyGridMap[start_idx];
         open[start_idx] = start_node.f_cost;
         parentNode[start_idx] = -1;
         pq_wait.push(start_node);
@@ -126,6 +133,7 @@ namespace astar_planner {
                 }
                 nxt.g_cost = cur.g_cost + getGcost(cur.idx,nxt.idx);
                 nxt.f_cost = nxt.g_cost + getHeuristic(nxt.idx,goal_idx);
+                nxt.cell_size = OccupancyGridMap[nxt.idx];
                 if(open[nxt.idx] < nxt.f_cost) {
                     continue;
                 }
@@ -173,6 +181,8 @@ namespace astar_planner {
             plan.push_back(coord);
         }
         plan.push_back(goal);
+        ROS_INFO("Start Pose: %f  %f", start.pose.position.x,start.pose.position.y);
+        ROS_INFO("Goal Pose:%f  %f", goal.pose.position.x,goal.pose.position.y);
         return true;
     }
 
@@ -188,7 +198,7 @@ namespace astar_planner {
                 continue;
             }
             int nidx = m_costmap->getIndex(nx,ny);
-            if(OccupancyGridMap[nidx] == 0) {
+            if(OccupancyGridMap[nidx] >= 254) {
                 continue;
             }
             adj.push_back(nidx);
