@@ -4,13 +4,13 @@
 //register this planner as a BaseAstarPlanner plugin
 PLUGINLIB_EXPORT_CLASS(astar_planner::AstarPlanner, nav_core::BaseGlobalPlanner)
 
-// compare function for minimum heap
+// minimum heap for cell cost first and function value second
 struct cmp {
     bool operator()(Node &fst_node, Node &snd_node) {
-        if(fst_node.cell_size > snd_node.cell_size) {
+        if(fst_node.cell_cost > snd_node.cell_cost) {
             return true;
         }
-        else if(fst_node.cell_size == snd_node.cell_size) {
+        else if(fst_node.cell_cost == snd_node.cell_cost) {
             return fst_node.f_cost > snd_node.f_cost;
         }
         else {
@@ -24,14 +24,15 @@ int dx[8] = {0,1,1,1,0,-1,-1,-1};
 int dy[8] = {-1,-1,0,1,1,1,0,-1};
 namespace astar_planner {
 
-    //Constructor
+    //default Constructor
     AstarPlanner::AstarPlanner(){}
 
+    //Constructor for initialization
     AstarPlanner::AstarPlanner(std::string name, costmap_2d::Costmap2DROS* costmap_ros){
         initialize(name, costmap_ros);
     }
 
-    //initialized the atar planner
+    //initialize the atar planner
     void AstarPlanner::initialize(std::string name, costmap_2d::Costmap2DROS* costmap_ros){
         if(!initialized) {
             m_costmap_ros = costmap_ros;
@@ -39,19 +40,6 @@ namespace astar_planner {
             cellsY = m_costmap->getSizeInCellsY();
             cellsX = m_costmap->getSizeInCellsX();
             area = cellsY * cellsX;
-            resolution = m_costmap->getResolution();
-            OccupancyGridMap.clear();
-            OccupancyGridMap.resize(area);
-            for(unsigned int i = 0; i < cellsY; i++) {
-                for(unsigned int j = 0; j < cellsX; j++) {
-                    unsigned int cost = static_cast<int>(m_costmap->getCost(j,i));
-                    if(cost == 0) {
-                        
-                    }
-                    OccupancyGridMap[i*cellsX+j] = cost;
-                }
-            }
-
             m_frame_id = m_costmap_ros->getGlobalFrameID();
             ros::NodeHandle private_nh("~/"+name);
             pub = private_nh.advertise<nav_msgs::Path>("plan", 1);
@@ -59,16 +47,19 @@ namespace astar_planner {
         }
         else {
             ROS_WARN("Already Initialized");
-
         }
     }
 
     //making the path of the AMR
-    bool AstarPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geometry_msgs::PoseStamped& goal,  std::vector<geometry_msgs::PoseStamped>& plan ){
+    bool AstarPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geometry_msgs::PoseStamped& goal, vector<geometry_msgs::PoseStamped>& plan ){
         if(!initialized) {
             ROS_WARN("Not Initialized");
             return false;
         }
+
+        //update the map to check the dynamic obstacle
+        //initialize only once if there is no dynamic obstacle to reduce the time and memory
+        outlineMap();
 
         //get the start pose of the map from the world
         double world_sx = start.pose.position.x;
@@ -86,18 +77,15 @@ namespace astar_planner {
         int start_idx = m_costmap->getIndex(start_x,start_y);
         int goal_idx = m_costmap->getIndex(goal_x,goal_y);
         
-        //check the start and goal located at the correct poistion
-        //what if it gets to the free space area
+        //check the start and goal pose located at the correct poistion
         if(OccupancyGridMap[start_idx] > 0 || !areaLimit(start_x,start_y)) {
-            ROS_INFO("%d  %d       %d",start_x,start_y,OccupancyGridMap[start_idx]);
             ROS_INFO("Wrong start position");
         }
         if(OccupancyGridMap[goal_idx] > 0 || !areaLimit(goal_x,goal_y)) {
             ROS_INFO("Wrong goal position");
         }
-        //pq to get the lowest value of the fuctions
-        //make the open and closed checking vector
-        //make the parent node
+
+        //declare pq for the lowest function, open vector, closed vector, and parentNode
         priority_queue<Node,vector<Node>,cmp> pq_wait;
         vector<int> open(area,1000000);
         vector<bool> closed(area,false);
@@ -108,7 +96,7 @@ namespace astar_planner {
         start_node.f_cost = 0 + getHeuristic(start_idx,goal_idx);
         start_node.g_cost = 0;
         start_node.idx = start_idx;
-        start_node.cell_size = OccupancyGridMap[start_idx];
+        start_node.cell_cost = OccupancyGridMap[start_idx];
         open[start_idx] = start_node.f_cost;
         parentNode[start_idx] = -1;
         pq_wait.push(start_node);
@@ -133,7 +121,7 @@ namespace astar_planner {
                 }
                 nxt.g_cost = cur.g_cost + getGcost(cur.idx,nxt.idx);
                 nxt.f_cost = nxt.g_cost + getHeuristic(nxt.idx,goal_idx);
-                nxt.cell_size = OccupancyGridMap[nxt.idx];
+                nxt.cell_cost = OccupancyGridMap[nxt.idx];
                 if(open[nxt.idx] < nxt.f_cost) {
                     continue;
                 }
@@ -143,11 +131,22 @@ namespace astar_planner {
             }
         }
 
+        //check that the available path is found
         if(parentNode[goal_idx] == -10) {
             ROS_WARN("Goal pose cannot be reached");
             return false;
         }
-        
+
+        //publish the final plan for the path
+        plan = getPath(parentNode,start_idx,goal_idx);
+        plan.push_back(goal);
+        ROS_INFO("Start Pose: %f  %f  %f", start.pose.position.x,start.pose.position.y,start.pose.orientation.w);
+        ROS_INFO("Goal Pose:%f  %f  %f", goal.pose.position.x,goal.pose.position.y,goal.pose.orientation.w);
+        return true;
+    }
+    
+    // convert the path to the real world from the map idx;
+    vector<geometry_msgs::PoseStamped> AstarPlanner::getPath(vector<int> parentNode, int start_idx, int goal_idx) {
         //construct the path
         vector<int> path;
         int reverse_start = goal_idx;
@@ -157,7 +156,7 @@ namespace astar_planner {
         }
         path.push_back(start_idx);
         reverse(path.begin(),path.end());
-
+        vector<geometry_msgs::PoseStamped> plan;
         ros::Time plan_time = ros::Time::now();
         for(int i = 0; i < path.size(); i++) {
             unsigned int tmp_x,tmp_y;
@@ -180,10 +179,19 @@ namespace astar_planner {
             coord.pose.orientation = tf::createQuaternionMsgFromYaw(angle);
             plan.push_back(coord);
         }
-        plan.push_back(goal);
-        ROS_INFO("Start Pose: %f  %f", start.pose.position.x,start.pose.position.y);
-        ROS_INFO("Goal Pose:%f  %f", goal.pose.position.x,goal.pose.position.y);
-        return true;
+        return plan;
+    }
+
+    //make the map
+    void AstarPlanner::outlineMap() {
+        OccupancyGridMap.clear();
+        OccupancyGridMap.resize(area);
+        for(unsigned int i = 0; i < cellsY; i++) {
+            for(unsigned int j = 0; j < cellsX; j++) {
+                unsigned int cost = static_cast<int>(m_costmap->getCost(j,i));
+                OccupancyGridMap[i*cellsX+j] = cost;
+            }
+        }
     }
 
     //find the adjacent nodes
