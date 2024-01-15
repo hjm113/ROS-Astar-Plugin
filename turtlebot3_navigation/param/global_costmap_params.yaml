@@ -1,0 +1,31 @@
+global_costmap:
+  global_frame: map
+  robot_base_frame: base_footprint
+
+  plugins:
+    - {name: static_layer,            type: "costmap_2d::StaticLayer"}
+    - {name: obstacle_layer,          type: "costmap_2d::VoxelLayer"}
+    - {name: inflation_layer,         type: "costmap_2d::InflationLayer"}
+
+  update_frequency: 1.0
+  publish_frequency: 1.0
+  transform_tolerance: 0.5
+
+  static_map: true
+
+  inflation_radius: 1.5
+
+  ### Sensor management parameters ###
+
+  obstacle_range: 3.0
+  raytrace_range: 3.5
+
+  footprint: [[-0.105, -0.105], [-0.105, 0.105], [0.041, 0.105], [0.041, -0.105]]
+  #robot_radius: 0.105
+
+  inflation_radius: 1.0
+  cost_scaling_factor: 3.0
+
+  map_type: costmap
+  observation_sources: scan
+  scan: {sensor_frame: base_scan, data_type: LaserScan, topic: scan, marking: true, clearing: true}
